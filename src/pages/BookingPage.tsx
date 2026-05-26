@@ -20,7 +20,7 @@ const initialPatientForm: PacienteForm = {
 function BookingPage() {
   const [apiServices, setApiServices] = useState<Servicio[]>([])
   const [selectedServiceId, setSelectedServiceId] = useState<number | null>(null)
-  const [selectedDate, setSelectedDate] = useState(getTomorrowDate())
+  const [selectedDate, setSelectedDate] = useState(getTodayDate())
   const [selectedTime, setSelectedTime] = useState('')
   const [availableTimes, setAvailableTimes] = useState<string[]>([])
   const [patient, setPatient] = useState<PacienteForm>(initialPatientForm)
@@ -28,6 +28,7 @@ function BookingPage() {
   const [loadingTimes, setLoadingTimes] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [apiNotice, setApiNotice] = useState('')
+  const [availabilityNotice, setAvailabilityNotice] = useState('')
   const [error, setError] = useState('')
   const [createdAppointment, setCreatedAppointment] = useState<Cita | null>(null)
 
@@ -66,10 +67,28 @@ function BookingPage() {
       setSelectedTime('')
       try {
         const data = await getDisponibilidad(selectedDate)
-        setAvailableTimes(data.horariosDisponibles.map((time) => time.slice(0, 5)))
+        const times = data.horariosDisponibles.map((time) => time.slice(0, 5))
+
+        if (times.length > 0) {
+          setAvailableTimes(times)
+          return
+        }
+
+        const nextAvailability = await findNextAvailableDate(selectedDate)
+        if (nextAvailability) {
+          setSelectedDate(nextAvailability.date)
+          setAvailableTimes(nextAvailability.times)
+          setAvailabilityNotice(
+            `No quedan horarios para la fecha seleccionada. Mostrando disponibilidad del ${formatDisplayDate(nextAvailability.date)}.`,
+          )
+          return
+        }
+
+        setAvailableTimes([])
+        setAvailabilityNotice('No encontramos horarios disponibles en los próximos días.')
       } catch {
         setAvailableTimes([])
-        setApiNotice('No se pudo consultar la disponibilidad real de la API.')
+        setAvailabilityNotice('No se pudo consultar la disponibilidad real de la API.')
       } finally {
         setLoadingTimes(false)
       }
@@ -80,6 +99,11 @@ function BookingPage() {
 
   function updatePatient<K extends keyof PacienteForm>(field: K, value: PacienteForm[K]) {
     setPatient((current) => ({ ...current, [field]: value }))
+  }
+
+  function changeSelectedDate(value: string) {
+    setAvailabilityNotice('')
+    setSelectedDate(value)
   }
 
   async function submitAppointment(event: FormEvent<HTMLFormElement>) {
@@ -169,6 +193,11 @@ function BookingPage() {
                 {apiNotice}
               </div>
             ) : null}
+            {availabilityNotice ? (
+              <div className="mb-5 rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+                {availabilityNotice}
+              </div>
+            ) : null}
 
             <BookingSection number="1" title="Selecciona el servicio">
               {loadingServices ? (
@@ -206,9 +235,9 @@ function BookingPage() {
                   </span>
                   <input
                     type="date"
-                    min={getTomorrowDate()}
+                    min={getTodayDate()}
                     value={selectedDate}
-                    onChange={(event) => setSelectedDate(event.target.value)}
+                    onChange={(event) => changeSelectedDate(event.target.value)}
                     className="h-11 w-full rounded-md border border-slate-300 px-3.5 text-[15px] outline-none transition focus:border-[#00478d] focus:ring-2 focus:ring-blue-100"
                     required
                   />
@@ -216,7 +245,7 @@ function BookingPage() {
 
                 <div>
                   <span className="mb-2 block text-[13px] font-semibold uppercase tracking-wide text-slate-600">
-                    Horarios disponibles
+                    Horas de inicio disponibles
                   </span>
                   {loadingTimes ? (
                     <p className="rounded-md border border-slate-200 px-4 py-3 text-sm text-slate-500">
@@ -273,7 +302,7 @@ function BookingPage() {
             <div className="mt-5 space-y-4">
               <SummaryItem label="Servicio" value={selectedService?.nombre ?? 'Sin seleccionar'} />
               <SummaryItem label="Fecha" value={formatDisplayDate(selectedDate)} />
-              <SummaryItem label="Hora" value={selectedTime || 'Sin seleccionar'} />
+              <SummaryItem label="Hora de inicio" value={selectedTime || 'Sin seleccionar'} />
               <SummaryItem label="Paciente" value={patientFullName || 'Pendiente'} />
             </div>
 
@@ -399,10 +428,30 @@ function getPatientFullName(patient: PacienteForm) {
     .join(' ')
 }
 
-function getTomorrowDate() {
-  const date = new Date()
-  date.setDate(date.getDate() + 1)
-  return formatDateInputValue(date)
+function getTodayDate() {
+  return formatDateInputValue(new Date())
+}
+
+async function findNextAvailableDate(fromDate: string) {
+  const date = parseDateInputValue(fromDate)
+
+  for (let offset = 1; offset <= 30; offset += 1) {
+    date.setDate(date.getDate() + 1)
+    const candidateDate = formatDateInputValue(date)
+    const data = await getDisponibilidad(candidateDate)
+    const times = data.horariosDisponibles.map((time) => time.slice(0, 5))
+
+    if (times.length > 0) {
+      return { date: candidateDate, times }
+    }
+  }
+
+  return null
+}
+
+function parseDateInputValue(value: string) {
+  const [year, month, day] = value.split('-').map(Number)
+  return new Date(year, month - 1, day)
 }
 
 function formatDateInputValue(date: Date) {
