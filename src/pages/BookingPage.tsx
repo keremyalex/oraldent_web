@@ -3,7 +3,11 @@ import type { FormEvent, ReactNode } from 'react'
 import logo from '../assets/logo.png'
 import { ArrowRightIcon } from '../components/icons/ClinicIcons'
 import { crearCita, getDisponibilidad, getServicios } from '../services/bookingService'
-import type { Cita, PacienteForm, Servicio } from '../types/api'
+import { crearPortalCita, getPortalPerfil } from '../services/portalPacienteService'
+import { portalTokenKey } from './portal-paciente/utils'
+import type { Paciente, PacienteForm, Servicio } from '../types/api'
+
+type CreatedAppointment = { codigoGestion: string }
 
 const initialPatientForm: PacienteForm = {
   nombre: '',
@@ -24,19 +28,50 @@ function BookingPage() {
   const [selectedTime, setSelectedTime] = useState('')
   const [availableTimes, setAvailableTimes] = useState<string[]>([])
   const [patient, setPatient] = useState<PacienteForm>(initialPatientForm)
+  const [portalPatient, setPortalPatient] = useState<Paciente | null>(null)
+  const [portalToken, setPortalToken] = useState(() => localStorage.getItem(portalTokenKey) ?? '')
   const [loadingServices, setLoadingServices] = useState(true)
   const [loadingTimes, setLoadingTimes] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [apiNotice, setApiNotice] = useState('')
   const [availabilityNotice, setAvailabilityNotice] = useState('')
   const [error, setError] = useState('')
-  const [createdAppointment, setCreatedAppointment] = useState<Cita | null>(null)
+  const [createdAppointment, setCreatedAppointment] = useState<CreatedAppointment | null>(null)
 
   const selectedService = useMemo(
     () => apiServices.find((service) => service.id === selectedServiceId),
     [selectedServiceId, apiServices],
   )
-  const patientFullName = getPatientFullName(patient)
+  const isPortalBooking = new URLSearchParams(window.location.search).get('from') === 'portal' || Boolean(portalToken)
+  const returnHref = isPortalBooking ? '/portal' : '/'
+  const patientFullName = portalPatient ? getPortalPatientFullName(portalPatient) : getPatientFullName(patient)
+
+  useEffect(() => {
+    async function loadPortalPatient() {
+      if (!portalToken) return
+      try {
+        const perfil = await getPortalPerfil(portalToken)
+        setPortalPatient(perfil)
+        setPatient((current) => ({
+          ...current,
+          nombre: perfil.nombre ?? '',
+          apellidoPaterno: perfil.apellidoPaterno ?? '',
+          apellidoMaterno: perfil.apellidoMaterno ?? '',
+          celular: perfil.celular ?? '',
+          documentoIdentidad: perfil.documentoIdentidad ?? '',
+          correo: perfil.correo ?? '',
+          fechaNacimiento: perfil.fechaNacimiento ?? '',
+          direccion: perfil.direccion ?? '',
+        }))
+      } catch {
+        localStorage.removeItem(portalTokenKey)
+        setPortalToken('')
+        setPortalPatient(null)
+      }
+    }
+
+    void loadPortalPatient()
+  }, [portalToken])
 
   useEffect(() => {
     async function loadServices() {
@@ -118,25 +153,34 @@ function BookingPage() {
 
     setSubmitting(true)
     try {
-      const created = await crearCita({
-        paciente: {
-          nombre: patient.nombre.trim(),
-          apellidoPaterno: patient.apellidoPaterno.trim(),
-          apellidoMaterno: patient.apellidoMaterno.trim() || null,
-          celular: patient.celular.trim(),
-          documentoIdentidad: patient.documentoIdentidad.trim() || null,
-          correo: patient.correo.trim() || null,
-          fechaNacimiento: patient.fechaNacimiento || null,
-          direccion: patient.direccion.trim() || null,
-          fotoUrl: null,
-        },
+      const payload = {
         servicioId: selectedServiceId,
         fechaHoraInicio: `${selectedDate}T${selectedTime}:00`,
         motivo: patient.motivo.trim(),
         notas: null,
-      })
+      }
+      const created = portalToken
+        ? await crearPortalCita(portalToken, payload)
+        : await crearCita({
+            ...payload,
+            paciente: {
+              nombre: patient.nombre.trim(),
+              apellidoPaterno: patient.apellidoPaterno.trim(),
+              apellidoMaterno: patient.apellidoMaterno.trim() || null,
+              celular: patient.celular.trim(),
+              documentoIdentidad: patient.documentoIdentidad.trim() || null,
+              correo: patient.correo.trim() || null,
+              fechaNacimiento: patient.fechaNacimiento || null,
+              direccion: patient.direccion.trim() || null,
+              fotoUrl: null,
+            },
+          })
       setCreatedAppointment(created)
-      setPatient(initialPatientForm)
+      if (!portalToken) {
+        setPatient(initialPatientForm)
+      } else {
+        void getPortalPerfil(portalToken).then(setPortalPatient).catch(() => undefined)
+      }
       setSelectedTime('')
     } catch (appointmentError) {
       setError(
@@ -160,7 +204,7 @@ function BookingPage() {
             </span>
           </a>
           <a
-            href="/"
+            href={returnHref}
             className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-[#00478d] transition hover:border-[#00478d] hover:bg-blue-50"
           >
             Volver
@@ -277,7 +321,14 @@ function BookingPage() {
               </div>
             </BookingSection>
 
-            <BookingSection number="3" title="Datos del paciente">
+            <BookingSection number="3" title={portalPatient ? 'Paciente' : 'Datos del paciente'}>
+              {portalPatient ? (
+                <div className="rounded-md border border-[#b8e2e5] bg-[#e9f8f7] px-4 py-3 text-sm text-slate-700">
+                  <p className="font-bold text-slate-950">{getPortalPatientFullName(portalPatient)}</p>
+                  <p className="mt-1">CI: {portalPatient.documentoIdentidad}</p>
+                  <p className="mt-1">La cita se registrará con tu cuenta del portal.</p>
+                </div>
+              ) : (
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <TextInput label="Nombre" value={patient.nombre} onChange={(value) => updatePatient('nombre', value)} required />
                 <TextInput label="Apellido paterno" value={patient.apellidoPaterno} onChange={(value) => updatePatient('apellidoPaterno', value)} required />
@@ -288,6 +339,7 @@ function BookingPage() {
                 <TextInput label="Fecha de nacimiento" type="date" value={patient.fechaNacimiento} onChange={(value) => updatePatient('fechaNacimiento', value)} />
                 <TextInput label="Dirección" value={patient.direccion} onChange={(value) => updatePatient('direccion', value)} />
               </div>
+              )}
 
               <div className="mt-4">
                 <TextArea label="Motivo de consulta" value={patient.motivo} onChange={(value) => updatePatient('motivo', value)} required />
@@ -418,6 +470,12 @@ function SummaryItem({ label, value }: { label: string; value: string }) {
   )
 }
 
+function getPortalPatientFullName(patient: Paciente) {
+  return [patient.nombre, patient.apellidoPaterno, patient.apellidoMaterno]
+    .filter(Boolean)
+    .join(' ')
+}
+
 function getPatientFullName(patient: PacienteForm) {
   return [
     patient.nombre.trim(),
@@ -471,3 +529,4 @@ function formatDisplayDate(value: string) {
 }
 
 export default BookingPage
+
