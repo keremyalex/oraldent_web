@@ -16,6 +16,7 @@ export type Cita = {
   codigoGestion: string
   estado: string
   servicio: Servicio
+  paciente: Paciente
 }
 
 export type ApiError = {

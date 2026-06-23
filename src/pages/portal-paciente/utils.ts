@@ -26,7 +26,15 @@ export function formatDateTime(value?: string | null) {
 
 export function formatDate(value?: string | null) {
   if (!value) return 'No registrado'
-  return new Intl.DateTimeFormat('es-BO', { dateStyle: 'medium' }).format(new Date(value))
+  return new Intl.DateTimeFormat('es-BO', { dateStyle: 'medium' }).format(parseDateValue(value))
+}
+
+function parseDateValue(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (match) {
+    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+  }
+  return new Date(value)
 }
 
 export function formatEstado(value: string) {

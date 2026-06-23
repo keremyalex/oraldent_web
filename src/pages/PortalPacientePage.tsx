@@ -269,7 +269,12 @@ function PortalPacientePage() {
                 />
               ) : null}
               {selectedFicha && activeTab === 'radiografias' ? (
-                <RadiografiasTab radiografias={radiografias} loading={loadingFichaData} />
+                <RadiografiasTab
+                  radiografias={radiografias}
+                  loading={loadingFichaData}
+                  downloadingKey={downloadingKey}
+                  onPdf={handlePdf}
+                />
               ) : null}
               {selectedFicha && activeTab === 'reportes' ? (
                 <ReportesTab ficha={selectedFicha} downloadingKey={downloadingKey} onPdf={handlePdf} />

@@ -7,7 +7,13 @@ import { crearPortalCita, getPortalPerfil } from '../services/portalPacienteServ
 import { portalTokenKey } from './portal-paciente/utils'
 import type { Paciente, PacienteForm, Servicio } from '../types/api'
 
-type CreatedAppointment = { codigoGestion: string }
+type CreatedAppointment = {
+  codigoGestion: string
+  codigoPaciente: string
+  paciente: string
+  servicio: string
+  fechaHoraInicio: string
+}
 
 const initialPatientForm: PacienteForm = {
   nombre: '',
@@ -141,6 +147,14 @@ function BookingPage() {
     setSelectedDate(value)
   }
 
+  function resetBookingForm() {
+    setSelectedServiceId(null)
+    setSelectedDate(getTodayDate())
+    setSelectedTime('')
+    setAvailableTimes([])
+    setAvailabilityNotice('')
+  }
+
   async function submitAppointment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
@@ -175,13 +189,20 @@ function BookingPage() {
               fotoUrl: null,
             },
           })
-      setCreatedAppointment(created)
+      setCreatedAppointment({
+        codigoGestion: created.codigoGestion,
+        codigoPaciente: created.paciente.codigoPaciente,
+        paciente: getPortalPatientFullName(created.paciente),
+        servicio: created.servicio?.nombre ?? selectedService?.nombre ?? 'Sin registrar',
+        fechaHoraInicio: created.fechaHoraInicio,
+      })
       if (!portalToken) {
         setPatient(initialPatientForm)
       } else {
+        setPatient((current) => ({ ...current, motivo: '' }))
         void getPortalPerfil(portalToken).then(setPortalPatient).catch(() => undefined)
       }
-      setSelectedTime('')
+      resetBookingForm()
     } catch (appointmentError) {
       setError(
         appointmentError instanceof Error
@@ -334,7 +355,7 @@ function BookingPage() {
                 <TextInput label="Apellido paterno" value={patient.apellidoPaterno} onChange={(value) => updatePatient('apellidoPaterno', value)} required />
                 <TextInput label="Apellido materno" value={patient.apellidoMaterno} onChange={(value) => updatePatient('apellidoMaterno', value)} />
                 <TextInput label="Celular" value={patient.celular} onChange={(value) => updatePatient('celular', value)} required />
-                <TextInput label="Documento de identidad" value={patient.documentoIdentidad} onChange={(value) => updatePatient('documentoIdentidad', value)} />
+                <TextInput label="Documento de identidad" value={patient.documentoIdentidad} onChange={(value) => updatePatient('documentoIdentidad', value)} required />
                 <TextInput label="Correo" type="email" value={patient.correo} onChange={(value) => updatePatient('correo', value)} />
                 <TextInput label="Fecha de nacimiento" type="date" value={patient.fechaNacimiento} onChange={(value) => updatePatient('fechaNacimiento', value)} />
                 <TextInput label="Dirección" value={patient.direccion} onChange={(value) => updatePatient('direccion', value)} />
@@ -374,16 +395,80 @@ function BookingPage() {
               </div>
             ) : null}
 
-            {createdAppointment ? (
-              <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-                Cita registrada. Código de gestión:{' '}
-                <strong>{createdAppointment.codigoGestion}</strong>.
-              </div>
-            ) : null}
           </aside>
         </div>
       </section>
+      {createdAppointment ? (
+        <BookingConfirmationModal
+          appointment={createdAppointment}
+          onClose={() => setCreatedAppointment(null)}
+        />
+      ) : null}
     </main>
+  )
+}
+
+function BookingConfirmationModal({
+  appointment,
+  onClose,
+}: {
+  appointment: CreatedAppointment
+  onClose: () => void
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-5"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="booking-confirmation-title"
+    >
+      <section className="w-full max-w-lg rounded-lg bg-white p-5 shadow-2xl sm:p-7">
+        <p className="text-sm font-semibold uppercase tracking-wide text-[#006687]">Reserva confirmada</p>
+        <h2 id="booking-confirmation-title" className="mt-2 text-2xl font-bold text-slate-950">
+          Tu cita fue registrada
+        </h2>
+        <p className="mt-2 text-sm leading-6 text-slate-600">
+          Conserva el codigo de gestion para cancelar o reprogramar esta cita.
+        </p>
+
+        <div className="mt-5 grid gap-3 rounded-md border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2">
+          <ConfirmationItem label="Paciente" value={appointment.paciente} />
+          <ConfirmationItem label="Servicio" value={appointment.servicio} />
+          <ConfirmationItem label="Fecha y hora" value={formatAppointmentDateTime(appointment.fechaHoraInicio)} />
+          <ConfirmationItem label="Codigo de gestion" value={appointment.codigoGestion} emphasized />
+        </div>
+
+        <div className="mt-4 rounded-md border border-cyan-200 bg-cyan-50 p-4 text-sm text-slate-700">
+          <p className="font-bold text-slate-950">Acceso al Portal del paciente</p>
+          <p className="mt-1 leading-6">
+            Ingresa con tu codigo de paciente <strong>{appointment.codigoPaciente}</strong> y el mismo
+            CI o documento de identidad registrado en esta reserva.
+          </p>
+        </div>
+
+        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <button type="button" onClick={onClose} className="portal-secondary-button">Cerrar</button>
+          <a href="/portal" className="portal-primary-button">Ir al portal</a>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function ConfirmationItem({
+  label,
+  value,
+  emphasized = false,
+}: {
+  label: string
+  value: string
+  emphasized?: boolean
+}) {
+  return (
+    <div>
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className={`mt-1 font-bold ${emphasized ? 'text-[#006687]' : 'text-slate-950'}`}>{value}</p>
+    </div>
   )
 }
 
@@ -517,6 +602,11 @@ function formatDateInputValue(date: Date) {
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
+}
+
+function formatAppointmentDateTime(value: string) {
+  const [date, time = ''] = value.split('T')
+  return `${formatDisplayDate(date)} · ${time.slice(0, 5)}`
 }
 
 function formatDisplayDate(value: string) {
